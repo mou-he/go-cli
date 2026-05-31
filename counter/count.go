@@ -2,12 +2,11 @@ package counter
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -32,6 +31,10 @@ type Settings struct {
 	Byte bool
 	Word bool
 	Line bool
+}
+type FileCounts struct {
+	Counts
+	FileName string
 }
 
 func (c Counts) Print(w io.Writer, s Settings) {
@@ -121,39 +124,28 @@ func CountLines(file io.Reader) int {
 	}
 	return count
 }
-func main() {
-	log.SetFlags(0)
+func CountFlies(filenames []string) (<-chan FileCounts, <-chan error) {
+	ch := make(chan FileCounts)
+	errch := make(chan error)
+	wg := sync.WaitGroup{}
+	wg.Add(len(filenames))
+	for _, filename := range filenames {
+		go func(fname string) {
+			defer wg.Done()
+			counts, err := CountWordsInFile(filename)
+			if err != nil {
+				errch <- err
+			}
+			ch <- FileCounts{
+				Counts:   counts,
+				FileName: filename,
+			}
+		}(filename)
 
-	total := 0
-	bytevar := false
-	wordvar := false
-	linevar := false
-	flag.BoolVar(&bytevar, "b", false, "count bytes")
-	flag.BoolVar(&wordvar, "w", false, "count words")
-	flag.BoolVar(&linevar, "l", false, "count lines")
-	flag.Parse()
-	s := Settings{
-		Byte: bytevar,
-		Word: wordvar,
-		Line: linevar,
 	}
-	filenames := flag.Args()
-	for _, file := range filenames {
-		wordCount, err := CountWordsInFile(file)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "counter:", err)
-			continue
-		}
-		total = total + wordCount.Words
-		fmt.Printf("%s\t", file)
-		wordCount.Print(os.Stdout, s)
-	}
-	if len(filenames) == 0 {
-		wordCount := GetCounts(os.Stdin)
-		wordCount.Print(os.Stdout, s)
-	}
-	if len(filenames) > 1 {
-		fmt.Println(total, "total")
-	}
-
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+	return ch, errch
 }

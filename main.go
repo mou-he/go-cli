@@ -6,17 +6,16 @@ import (
 	"go-cli/counter"
 	"log"
 	"os"
-	"sync"
 )
 
 func main() {
 	log.SetFlags(0)
 
 	var (
-		wg    sync.WaitGroup
-		mu    sync.Mutex
+		// mu    sync.Mutex
 		total int
 	)
+	didError := false
 	bytevar := false
 	wordvar := false
 	linevar := false
@@ -30,21 +29,29 @@ func main() {
 		Line: linevar,
 	}
 	filenames := flag.Args()
-	for _, file := range filenames {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			wordCount, err := counter.CountWordsInFile(file)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "counter:", err)
-				return
+	ch, errch := counter.CountFlies(filenames)
+
+	for {
+		select {
+		case res, open := <-ch:
+			if !open {
+				ch = nil
+				break
 			}
-			mu.Lock()
-			defer mu.Unlock()
-			total = total + wordCount.Words
-			fmt.Printf("%s\t", file)
-			wordCount.Print(os.Stdout, s)
-		}()
+			total += res.Words
+			res.Counts.Print(os.Stdout, s)
+
+		case err, open := <-errch:
+			if !open {
+				errch = nil
+				break
+			}
+			didError = true
+			fmt.Fprintln(os.Stderr, "counter:", err)
+		}
+		if ch == nil || errch == nil {
+			break
+		}
 	}
 	if len(filenames) == 0 {
 		wordCount := counter.GetCounts(os.Stdin)
@@ -52,6 +59,9 @@ func main() {
 	}
 	if len(filenames) > 1 {
 		fmt.Println(total, "total")
+	}
+	if didError {
+		os.Exit(1)
 	}
 
 }
