@@ -6,12 +6,17 @@ import (
 	"go-cli/counter"
 	"log"
 	"os"
+	"sync"
 )
 
 func main() {
 	log.SetFlags(0)
 
-	total := 0
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		total int
+	)
 	bytevar := false
 	wordvar := false
 	linevar := false
@@ -26,14 +31,20 @@ func main() {
 	}
 	filenames := flag.Args()
 	for _, file := range filenames {
-		wordCount, err := counter.CountWordsInFile(file)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "counter:", err)
-			continue
-		}
-		total = total + wordCount.Words
-		fmt.Printf("%s\t", file)
-		wordCount.Print(os.Stdout, s)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wordCount, err := counter.CountWordsInFile(file)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "counter:", err)
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			total = total + wordCount.Words
+			fmt.Printf("%s\t", file)
+			wordCount.Print(os.Stdout, s)
+		}()
 	}
 	if len(filenames) == 0 {
 		wordCount := counter.GetCounts(os.Stdin)
